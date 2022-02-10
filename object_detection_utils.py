@@ -149,3 +149,54 @@ def draw_bboxes(img, bboxes, classes, class_ids, colors = None, show_classes = N
 np.random.seed(8)
 colors = (np.random.randint(0, 255), np.random.randint(0, 255), np.random.randint(0, 255))
 colors=(255,0,0)
+
+
+from tqdm.notebook import tqdm
+from pycocotools import mask as maskUtils
+from joblib import Parallel, delayed
+
+def annotate(idx, row, cat_ids):
+        mask = rle2mask(row['annotation'], row['width'], row['height']) # Binary mask
+        c_rle = maskUtils.encode(mask) # Encoding it back to rle (coco format)
+        c_rle['counts'] = c_rle['counts'].decode('utf-8') # converting from binary to utf-8
+        area = maskUtils.area(c_rle).item() # calculating the area
+        bbox = maskUtils.toBbox(c_rle).astype(int).tolist() # calculating the bboxes
+        annotation = {
+            'segmentation': c_rle,
+            'bbox': bbox,
+            'area': area,
+            'image_id':row['id'], 
+            'category_id':cat_ids[row['cell_type']], 
+            'iscrowd':0, 
+            'id':idx
+        }
+        return annotation
+    
+def coco_structure(df, workers = 4):
+    
+    ## Building the header
+    cat_ids = {name:id+1 for id, name in enumerate(sorted(df.cell_type.unique()))}    
+    cats =[{'name':name, 'id':id} for name,id in cat_ids.items()]
+    images = [{'id':id, 'width':row.width, 'height':row.height, 'file_name':f'train/{id}.png'} for id,row in df.groupby('id').agg('first').iterrows()]
+    
+    ## Building the annotations
+    annotations = Parallel(n_jobs=workers)(delayed(annotate)(idx, row, cat_ids) for idx, row in tqdm(df.iterrows(), total = len(df)))
+        
+    return {'categories':cats, 'images':images, 'annotations':annotations}
+
+
+for fold in range(n_splits):
+    train_ids = df_images[df_images["fold"]!=fold].id
+    valid_ids = df_images[df_images["fold"]==fold].id
+    
+    df_train = df[df.id.isin(train_ids)].reset_index(drop=True)
+    df_valid = df[df.id.isin(valid_ids)].reset_index(drop=True)
+    
+    train_json = coco_structure(df_train)
+    valid_json = coco_structure(df_valid)
+    
+    with open(f'coco_cell_train_fold{fold}.json', 'w', encoding='utf-8') as f:
+        json.dump(train_json, f, ensure_ascii=True, indent=4)
+
+    with open(f'coco_cell_valid_fold{fold}.json', 'w', encoding='utf-8') as f:
+        json.dump(valid_json, f, ensure_ascii=True, indent=4)
