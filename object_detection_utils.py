@@ -23,6 +23,22 @@ def get_path(row):
 def load_image(image_path):
     return cv2.cvtColor(cv2.imread(image_path), cv2.COLOR_BGR2RGB)
 
+def yolo2voc(image_height, image_width, bboxes):
+    """
+    yolo => [xmid, ymid, w, h] (normalized)
+    voc  => [x1, y1, x2, y1]
+
+    """ 
+    bboxes = bboxes.copy().astype(float) # otherwise all value will be 0 as voc_pascal dtype is np.int
+
+    bboxes[..., [0, 2]] = bboxes[..., [0, 2]]* image_width
+    bboxes[..., [1, 3]] = bboxes[..., [1, 3]]* image_height
+
+    bboxes[..., [0, 1]] = bboxes[..., [0, 1]] - bboxes[..., [2, 3]]/2
+    bboxes[..., [2, 3]] = bboxes[..., [0, 1]] + bboxes[..., [2, 3]]
+
+    return bboxes
+
 def coco2yolo(image_height, image_width, bboxes):
     """
     coco => [xmin, ymin, w, h]
